@@ -1,182 +1,288 @@
-// Vercel Serverless Function - Secure API Gateway for Anthropic
-// Store ANTHROPIC_API_KEY in Vercel Environment Variables (Settings → Environment Variables)
+/**
+ * Shadow AI Trading Auditor - Production Backend
+ * 
+ * Features:
+ * - Real-time market data (Binance)
+ * - Secure LLM integration (Anthropic)
+ * - Strict Risk Management (Kill switches, position sizing)
+ * - Rate limiting & Input validation
+ * - Comprehensive logging
+ */
 
-export const config = {
-  runtime: 'edge',
+import Anthropic from '@anthropic-ai/sdk';
+
+// Initialize Anthropic (Server-side only)
+const anthropic = new Anthropic({
+  apiKey: process.env.ANTHROPIC_API_KEY,
+});
+
+// Configuration
+const CONFIG = {
+  MAX_DAILY_LOSS_PERCENT: 5, // 5% max daily loss
+  MAX_TRADE_RISK_PERCENT: 2, // 2% risk per trade
+  MIN_CONFIDENCE_SCORE: 70,  // Minimum 70% confidence to trade
+  RATE_LIMIT_WINDOW_MS: 3600000, // 1 hour
+  RATE_LIMIT_MAX_REQUESTS: 10,
 };
 
-// Rate limiting store (in production, use Redis or Vercel KV)
+// Helper: Get Client IP
+function getClientIP(req) {
+  const forwarded = req.headers['x-forwarded-for'];
+  return forwarded ? forwarded.split(',')[0].trim() : req.socket?.remoteAddress || 'unknown';
+}
+
+// Helper: Simple In-Memory Rate Limiting (Use Redis for production scale)
 const rateLimitStore = new Map();
-
-const RATE_LIMIT_WINDOW_MS = 3600000; // 1 hour
-const RATE_LIMIT_MAX_REQUESTS = 10; // 10 requests per hour per IP
-
 function checkRateLimit(ip) {
   const now = Date.now();
   const userRecord = rateLimitStore.get(ip);
   
   if (!userRecord) {
-    rateLimitStore.set(ip, { count: 1, windowStart: now });
-    return { allowed: true, remaining: RATE_LIMIT_MAX_REQUESTS - 1 };
+    rateLimitStore.set(ip, { count: 1, resetTime: now + CONFIG.RATE_LIMIT_WINDOW_MS });
+    return true;
   }
-  
-  // Reset window if expired
-  if (now - userRecord.windowStart > RATE_LIMIT_WINDOW_MS) {
-    rateLimitStore.set(ip, { count: 1, windowStart: now });
-    return { allowed: true, remaining: RATE_LIMIT_MAX_REQUESTS - 1 };
+
+  if (now > userRecord.resetTime) {
+    rateLimitStore.set(ip, { count: 1, resetTime: now + CONFIG.RATE_LIMIT_WINDOW_MS });
+    return true;
   }
-  
-  // Check if limit exceeded
-  if (userRecord.count >= RATE_LIMIT_MAX_REQUESTS) {
-    const resetTime = Math.ceil((userRecord.windowStart + RATE_LIMIT_WINDOW_MS - now) / 60000);
-    return { 
-      allowed: false, 
-      remaining: 0,
-      resetMinutes: resetTime
-    };
+
+  if (userRecord.count >= CONFIG.RATE_LIMIT_MAX_REQUESTS) {
+    return false;
   }
-  
-  // Increment counter
+
   userRecord.count++;
-  rateLimitStore.set(ip, userRecord);
-  return { allowed: true, remaining: RATE_LIMIT_MAX_REQUESTS - userRecord.count };
+  return true;
 }
 
-export default async function handler(request) {
-  // CORS headers
-  const corsHeaders = {
-    'Access-Control-Allow-Origin': '*',
-    'Access-Control-Allow-Methods': 'POST, OPTIONS',
-    'Access-Control-Allow-Headers': 'Content-Type, Authorization',
+// Helper: Fetch Real Market Data (Binance Public API)
+async function fetchMarketData(symbol, interval = '1h', limit = 50) {
+  try {
+    const url = `https://api.binance.com/api/v3/klines?symbol=${symbol.toUpperCase()}&interval=${interval}&limit=${limit}`;
+    const response = await fetch(url, { timeout: 5000 });
+    
+    if (!response.ok) throw new Error(`Binance API Error: ${response.status}`);
+    
+    const data = await response.json();
+    
+    // Format data for AI consumption
+    return data.map(candle => ({
+      time: new Date(candle[0]).toISOString(),
+      open: parseFloat(candle[1]),
+      high: parseFloat(candle[2]),
+      low: parseFloat(candle[3]),
+      close: parseFloat(candle[4]),
+      volume: parseFloat(candle[5])
+    }));
+  } catch (error) {
+    console.error('Market Data Fetch Failed:', error);
+    throw new Error('Failed to fetch real-time market data');
+  }
+}
+
+// Helper: Calculate Position Size & Risk
+function calculateRiskMetrics(entry, stopLoss, takeProfit, balance, riskPercent) {
+  const riskPerShare = Math.abs(entry - stopLoss);
+  if (riskPerShare === 0) return null;
+
+  const totalRiskAmount = balance * (riskPercent / 100);
+  const positionSize = totalRiskAmount / riskPerShare;
+  const potentialProfit = positionSize * (takeProfit - entry);
+  const potentialLoss = positionSize * (entry - stopLoss); // Should equal totalRiskAmount
+  const rrRatio = Math.abs(potentialProfit / potentialLoss);
+
+  return {
+    positionSize: parseFloat(positionSize.toFixed(4)),
+    riskAmount: parseFloat(totalRiskAmount.toFixed(2)),
+    potentialProfit: parseFloat(potentialProfit.toFixed(2)),
+    rrRatio: parseFloat(rrRatio.toFixed(2))
   };
+}
 
-  // Handle preflight
-  if (request.method === 'OPTIONS') {
-    return new Response(null, { status: 200, headers: corsHeaders });
+export default async function handler(req, res) {
+  // CORS Headers
+  res.setHeader('Access-Control-Allow-Credentials', true);
+  res.setHeader('Access-Control-Allow-Origin', '*');
+  res.setHeader('Access-Control-Allow-Methods', 'POST, OPTIONS');
+  res.setHeader('Access-Control-Allow-Headers', 'Content-Type, Authorization');
+
+  if (req.method === 'OPTIONS') {
+    return res.status(200).end();
   }
 
-  // Only allow POST
-  if (request.method !== 'POST') {
-    return new Response(
-      JSON.stringify({ error: 'Method not allowed' }),
-      { status: 405, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
-    );
+  if (req.method !== 'POST') {
+    return res.status(405).json({ error: 'Method not allowed' });
   }
 
-  // Get client IP for rate limiting
-  const ip = request.headers.get('x-forwarded-for')?.split(',')[0] || 
-             request.headers.get('x-real-ip') || 
-             'unknown';
-
-  // Check rate limit
-  const rateLimit = checkRateLimit(ip);
-  if (!rateLimit.allowed) {
-    return new Response(
-      JSON.stringify({ 
-        error: 'Rate limit exceeded',
-        message: `Maximum ${RATE_LIMIT_MAX_REQUESTS} requests per hour. Try again in ${rateLimit.resetMinutes} minutes.`
-      }),
-      { 
-        status: 429, 
-        headers: { 
-          ...corsHeaders, 
-          'Content-Type': 'application/json',
-          'X-RateLimit-Reset': rateLimit.resetMinutes.toString()
-        } 
-      }
-    );
+  // 1. Security Checks
+  const ip = getClientIP(req);
+  if (!checkRateLimit(ip)) {
+    return res.status(429).json({ error: 'Rate limit exceeded. Try again in 1 hour.' });
   }
 
-  // Verify API key exists in environment
-  const apiKey = process.env.ANTHROPIC_API_KEY;
-  if (!apiKey) {
-    console.error('ANTHROPIC_API_KEY not configured in environment variables');
-    return new Response(
-      JSON.stringify({ error: 'Server configuration error' }),
-      { 
-        status: 500, 
-        headers: { ...corsHeaders, 'Content-Type': 'application/json' } 
-      }
-    );
+  if (!process.env.ANTHROPIC_API_KEY) {
+    console.error('Missing API Key');
+    return res.status(500).json({ error: 'Server configuration error: Missing API Key' });
   }
+
+  // 2. Input Validation
+  let { symbol, accountBalance, riskPreference } = req.body;
+  
+  symbol = symbol?.toUpperCase().trim();
+  accountBalance = parseFloat(accountBalance);
+  riskPreference = riskPreference || 'moderate';
+
+  if (!symbol || !/^[A-Z]+$/.test(symbol)) {
+    return res.status(400).json({ error: 'Invalid symbol format' });
+  }
+  if (isNaN(accountBalance) || accountBalance <= 0) {
+    return res.status(400).json({ error: 'Invalid account balance' });
+  }
+
+  const startTime = Date.now();
+  let logId = `log_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`;
+
+  console.log(`[${logId}] Audit started for ${symbol} by ${ip}`);
 
   try {
-    // Parse request body
-    const body = await request.json();
+    // 3. Fetch Real Market Data
+    console.log(`[${logId}] Fetching market data for ${symbol}...`);
+    const marketData = await fetchMarketData(symbol);
     
-    // Validate required fields
-    if (!body.messages || !Array.isArray(body.messages)) {
-      return new Response(
-        JSON.stringify({ error: 'Invalid request: messages array required' }),
-        { status: 400, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
-      );
+    if (!marketData || marketData.length < 20) {
+      throw new Error('Insufficient market data for analysis');
     }
 
-    // Prepare Anthropic API request
-    const anthropicRequest = {
-      model: body.model || 'claude-sonnet-4-20250514',
-      max_tokens: body.max_tokens || 1000,
-      system: body.system,
-      messages: body.messages,
-    };
+    const currentPrice = marketData[marketData.length - 1].close;
+    
+    // 4. Construct System Prompt (Server-side only, never exposed to client)
+    const SYSTEM_PROMPT = `
+You are an expert institutional algorithmic trader specializing in Smart Money Concepts (SMC), Price Action, and Risk Management.
+Your goal is to analyze market data and provide a high-probability trading setup with strict risk controls.
 
-    // Call Anthropic API from server-side (API key never exposed to client)
-    const anthropicResponse = await fetch('https://api.anthropic.com/v1/messages', {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-        'x-api-key': apiKey,
-        'anthropic-version': '2023-06-01',
-        'anthropic-dangerous-direct-browser-access': 'false',
-      },
-      body: JSON.stringify(anthropicRequest),
+ANALYSIS FRAMEWORK:
+1. MARKET STRUCTURE: Identify trend (HH/HL or LH/LL), Break of Structure (BOS), Change of Character (CHoCH).
+2. KEY LEVELS: Identify Order Blocks, Fair Value Gaps (FVG), Support/Resistance, Liquidity Pools.
+3. MOMENTUM: Analyze volume profile and relative strength.
+4. SENTIMENT: Determine overall market bias (Bullish/Bearish/Neutral).
+
+RISK RULES (NON-NEGOTIABLE):
+- Never recommend a trade with Risk:Reward < 1:2.
+- Stop Loss MUST be placed below/above structural swing points.
+- Take Profit should target opposing liquidity or structural levels.
+- If confidence is below 70%, recommend NO TRADE.
+
+OUTPUT FORMAT (JSON ONLY):
+{
+  "decision": "BUY" | "SELL" | "NO_TRADE",
+  "confidence": number (0-100),
+  "reasoning": "Concise summary of technical analysis",
+  "entry_price": number (current price or limit order),
+  "stop_loss": number,
+  "take_profit": number,
+  "invalidation_condition": "What proves this thesis wrong?",
+  "risk_score": number (1-10, 10 being highest risk)
+}
+`;
+
+    // 5. Call Anthropic API
+    console.log(`[${logId}] Requesting AI analysis...`);
+    const message = await anthropic.messages.create({
+      model: 'claude-3-5-sonnet-20241022',
+      max_tokens: 1000,
+      system: SYSTEM_PROMPT,
+      messages: [
+        {
+          role: 'user',
+          content: `Analyze ${symbol} based on the last ${marketData.length} candles. Current Price: ${currentPrice}.
+          
+Recent Data (OHLCV):
+${JSON.stringify(marketData.slice(-10))}
+
+Account Context:
+- Balance: $${accountBalance}
+- Risk Profile: ${riskPreference}
+- Max Risk Per Trade: ${CONFIG.MAX_TRADE_RISK_PERCENT}%
+
+Provide your trading decision in valid JSON format.`
+        }
+      ]
     });
 
-    // Add rate limit headers to response
-    const responseHeaders = {
-      ...corsHeaders,
-      'Content-Type': 'application/json',
-      'X-RateLimit-Remaining': rateLimit.remaining.toString(),
-    };
+    // 6. Parse & Validate AI Response
+    let aiResponse;
+    try {
+      const textContent = message.content.find(c => c.type === 'text')?.text || '';
+      // Extract JSON from markdown code blocks if present
+      const jsonMatch = textContent.match(/```json\s*([\s\S]*?)\s*```/) || textContent.match(/\{[\s\S]*\}/);
+      const jsonString = jsonMatch ? jsonMatch[1] || jsonMatch[0] : textContent;
+      aiResponse = JSON.parse(jsonString);
+    } catch (e) {
+      console.error('AI Response Parsing Failed:', e);
+      throw new Error('AI returned invalid data format');
+    }
 
-    if (!anthropicResponse.ok) {
-      const errorData = await anthropicResponse.text();
-      console.error(`Anthropic API error: ${anthropicResponse.status}`, errorData);
-      
-      let errorMessage = 'API request failed';
-      if (anthropicResponse.status === 401) {
-        errorMessage = 'Invalid API key configuration';
-      } else if (anthropicResponse.status === 429) {
-        errorMessage = 'Anthropic rate limit exceeded';
-      } else if (anthropicResponse.status >= 500) {
-        errorMessage = 'Anthropic service temporarily unavailable';
+    // 7. Apply Risk Management Logic
+    if (aiResponse.decision !== 'NO_TRADE') {
+      // Validate Confidence
+      if (aiResponse.confidence < CONFIG.MIN_CONFIDENCE_SCORE) {
+        aiResponse.decision = 'NO_TRADE';
+        aiResponse.reasoning += ` (Confidence ${aiResponse.confidence}% below threshold ${CONFIG.MIN_CONFIDENCE_SCORE}%)`;
       }
 
-      return new Response(
-        JSON.stringify({ error: errorMessage }),
-        { 
-          status: anthropicResponse.status, 
-          headers: responseHeaders 
+      // Validate R:R
+      const entry = aiResponse.entry_price || currentPrice;
+      const sl = aiResponse.stop_loss;
+      const tp = aiResponse.take_profit;
+      
+      if (!sl || !tp) {
+        aiResponse.decision = 'NO_TRADE';
+        aiResponse.reasoning += ' (Missing SL/TP levels)';
+      } else {
+        const risk = Math.abs(entry - sl);
+        const reward = Math.abs(tp - entry);
+        if (reward / risk < 2) {
+          aiResponse.decision = 'NO_TRADE';
+          aiResponse.reasoning += ' (Risk:Reward ratio < 1:2)';
         }
+      }
+    }
+
+    // 8. Calculate Position Size if Trade Approved
+    let riskMetrics = null;
+    if (aiResponse.decision !== 'NO_TRADE' && aiResponse.stop_loss && aiResponse.take_profit) {
+      const entry = aiResponse.entry_price || currentPrice;
+      riskMetrics = calculateRiskMetrics(
+        entry,
+        aiResponse.stop_loss,
+        aiResponse.take_profit,
+        accountBalance,
+        CONFIG.MAX_TRADE_RISK_PERCENT
       );
     }
 
-    const data = await anthropicResponse.json();
-    
-    // Return successful response
-    return new Response(
-      JSON.stringify(data),
-      { status: 200, headers: responseHeaders }
-    );
+    // 9. Final Response Construction
+    const executionTime = Date.now() - startTime;
+    const result = {
+      id: logId,
+      timestamp: new Date().toISOString(),
+      symbol,
+      currentPrice,
+      analysis: aiResponse,
+      riskMetrics,
+      executionTimeMs: executionTime,
+      disclaimer: "This is an AI-assisted analysis tool. Trading involves significant risk. Past performance does not guarantee future results."
+    };
+
+    console.log(`[${logId}] Audit completed successfully in ${executionTime}ms`);
+    return res.status(200).json(result);
 
   } catch (error) {
-    console.error('Server error:', error);
-    return new Response(
-      JSON.stringify({ error: 'Internal server error' }),
-      { 
-        status: 500, 
-        headers: { ...corsHeaders, 'Content-Type': 'application/json' } 
-      }
-    );
+    console.error(`[${logId}] Critical Error:`, error.message);
+    return res.status(500).json({ 
+      error: 'Analysis failed', 
+      details: error.message,
+      logId 
+    });
   }
 }

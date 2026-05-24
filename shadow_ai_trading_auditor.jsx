@@ -151,27 +151,44 @@ export default function App() {
     setLoading(true);
 
     try {
-      // Call secure serverless API instead of direct Anthropic API
+      // Call secure serverless API with real-time market data integration
       const res = await fetch("/api/audit", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
-          model: "claude-sonnet-4-20250514",
-          max_tokens: 1000,
-          messages: newMessages.map(m => ({
-            role: m.role,
-            content: m.content
-          })),
+          symbol: "BTCUSDT",
+          accountBalance: 10000,
+          riskPreference: "moderate"
         })
       });
 
       if (!res.ok) {
         const errorData = await res.json().catch(() => ({}));
-        throw new Error(errorData.message || errorData.error || `API error ${res.status}`);
+        throw new Error(errorData.details || errorData.error || errorData.message || `API error ${res.status}`);
       }
       
       const data = await res.json();
-      const reply = data.content?.find(b => b.type === "text")?.text || "No response.";
+      
+      // Format the AI response for display
+      const analysis = data.analysis;
+      let reply = `**${analysis.decision}** (${analysis.confidence}% confidence)\n\n`;
+      reply += `${analysis.reasoning}\n\n`;
+      
+      if (analysis.decision !== 'NO_TRADE') {
+        reply += `**Entry:** $${analysis.entry_price}\n`;
+        reply += `**Stop Loss:** $${analysis.stop_loss}\n`;
+        reply += `**Take Profit:** $${analysis.take_profit}\n\n`;
+        
+        if (data.riskMetrics) {
+          reply += `**Position Size:** ${data.riskMetrics.positionSize} units\n`;
+          reply += `**Risk Amount:** $${data.riskMetrics.riskAmount}\n`;
+          reply += `**Potential Profit:** $${data.riskMetrics.potentialProfit}\n`;
+          reply += `**Risk:Reward:** 1:${data.riskMetrics.rrRatio}\n`;
+        }
+      }
+      
+      reply += `\n**Invalidation:** ${analysis.invalidation_condition}\n`;
+      reply += `\n*Risk Score: ${analysis.risk_score}/10*`;
 
       setMessages(prev => [...prev, { role: "assistant", content: reply }]);
     } catch (e) {
