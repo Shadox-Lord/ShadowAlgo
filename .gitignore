@@ -1,90 +1,52 @@
 ```
-# Dependencies
-node_modules/
-
-# Environment
-.env
-.env.local
-.env.*
-
-# Logs and temp files
-*.log
-*.tmp
-
-# Editors
-.vscode/
-.idea/
-
-# Build artifacts
-dist/
-build/
-target/
-
-# Python
+# Cache and temporary data
 __pycache__/
 *.pyc
 *.pyo
 *.pyd
-.Python
-env/
-venv/
+
+# Backtest cache and results
+backtest_cache/
+backtest_results/
+
+# Virtual environments
 .venv/
-.ENV
-.venv.bak/
-pip-log.txt
-pip-delete-this-directory.txt
+venv/
+env/
 
-# Compiled and binary files
-*.o
-*.obj
-*.so
-*.a
-*.dll
-*.exe
-*.out
-*.class
+# Dependencies
+node_modules/
+.Python
 
-# Coverage reports
-coverage/
-htmlcov/
-.coverage
+# Build artifacts
+build/
+dist/
+*.egg-info/
 
-# MyPy cache
-.mypy_cache/
-.dmypy.json
-dmypy.json
+# Logs
+*.log
 
-# PyTest cache
-.pytest_cache/
-
-# Gradle
-.gradle/
-
-# Compressed files
-*.zip
-*.gz
-*.tar
-*.tgz
-*.bz2
-*.xz
-*.7z
-*.rar
-*.zst
-*.lz4
-*.lzh
-*.cab
-*.arj
-*.rpm
-*.deb
-*.Z
-*.lz
-*.lzo
-*.tar.gz
-*.tar.bz2
-*.tar.xz
-*.tar.zst
-
-# System files
+# OS generated files
 .DS_Store
 Thumbs.db
+
+# Editor files
+.vscode/
+.idea/
+*.swp
+*.swo
+
+# Environment variables
+.env
+.env.local
+*.env.*
+
+# Coverage reports
+.coverage
+htmlcov/
+coverage/
+
+# Temporary files
+*.tmp
+*.temp
 ```
