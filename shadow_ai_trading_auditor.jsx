@@ -1,58 +1,7 @@
 import { useState, useRef, useEffect } from "react";
 
-const SYSTEM_PROMPT = `You are acting as a ruthless quantitative AI trading systems auditor and infrastructure architect.
-
-You are analyzing the Shadow AI Trading System — a lightweight AI-assisted discretionary trading intelligence system designed for:
-- EURUSD only
-- Prop firm evaluations and funded account survival
-- Human manual execution ONLY (AI never executes trades)
-- Maximum 1 trade/day, ~2 trades/week
-- 0.3% risk per trade
-- Low-frequency, high-quality setup filtering
-- Vercel + Telegram delivery
-- Monthly cost target: $5–30/month
-
-The full analysis report rates this system as follows:
-- Research/Architecture: 8.7/10
-- Production Readiness: 5.8/10
-- Real-Money Safety: 4.5/10
-- Innovation: 9.2/10
-- Risk Management: 4.2/10
-
-The system is built from 4 sub-frameworks: TradingAgents, Atlas-GIC, Vibe-Trading, AI-Trader orchestrated via FullSystem glue code.
-
-Atlas-GIC backtest result: -5.91% over 18 months (their own data, honest).
-The execution engine is currently a SIMULATOR — no live broker connection.
-
-The Shadow Blueprint proposes a refined 7-10 agent architecture:
-1. Market Research Agent
-2. Bullish Analyzer + Debater
-3. Bearish Analyzer + Debater
-4. News & Macro Agent
-5. Risk Manager Agent
-6. Quality Checker & Confidence Engine
-7. Tactical Summary Agent
-(+ optional: Trade Allocation Agent, Market Regime Detector, Spread & Volatility Monitor)
-
-Your job is to respond as a ruthless but precise auditor. Be direct, blunt, and specific. No fluff. No motivational language.
-
-When asked to perform a full audit, structure your response with these exact sections using markdown:
-
-## SECTION 1 — FINAL 10 AGENTS
-List each selected agent with: Role, Why It Survived, Unique Edge, Required Inputs, Required Outputs, Token Cost, Recommended Model, Failure Risks, Verdict.
-
-## SECTION 2 — AGENTS TO DELETE
-List everything cut, with reason, infrastructure cost impact, and hallucination/maintenance risk.
-
-## SECTION 3 — FINAL SYSTEM ARCHITECTURE
-Data flow, model hierarchy, scheduling, fallback logic, confidence system, NO-TRADE filtering.
-
-## SECTION 4 — FINAL REALITY CHECK
-10 scored metrics and the single most important improvement needed.
-
-For other questions, answer directly and precisely. No hedging. No "it depends." Make a call.`;
-
-const AUDIT_PROMPT = `Perform the complete ruthless audit of the Shadow AI Trading System as described. Follow the exact 4-section format. Be specific, blunt, and final. No alternatives, no maybes. This is the system's fate.`;
+// System prompt moved to server-side API route for security
+// See /pages/api/audit.js - ANTHROPIC_API_KEY stored in Vercel environment variables
 
 function TypingIndicator() {
   return (
@@ -202,23 +151,25 @@ export default function App() {
     setLoading(true);
 
     try {
-      const apiMessages = newMessages.map(m => ({
-        role: m.role,
-        content: m.content
-      }));
-
-      const res = await fetch("https://api.anthropic.com/v1/messages", {
+      // Call secure serverless API instead of direct Anthropic API
+      const res = await fetch("/api/audit", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
           model: "claude-sonnet-4-20250514",
           max_tokens: 1000,
-          system: SYSTEM_PROMPT,
-          messages: apiMessages,
+          messages: newMessages.map(m => ({
+            role: m.role,
+            content: m.content
+          })),
         })
       });
 
-      if (!res.ok) throw new Error(`API error ${res.status}`);
+      if (!res.ok) {
+        const errorData = await res.json().catch(() => ({}));
+        throw new Error(errorData.message || errorData.error || `API error ${res.status}`);
+      }
+      
       const data = await res.json();
       const reply = data.content?.find(b => b.type === "text")?.text || "No response.";
 
@@ -342,7 +293,7 @@ export default function App() {
           fontSize: 11, color: "var(--color-text-tertiary)", background: "none",
           border: "none", cursor: "pointer", padding: "4px 8px"
         }}>clear chat</button>
-        <button onClick={() => sendMessage(AUDIT_PROMPT)} disabled={loading} style={{
+        <button onClick={() => sendMessage("Perform the complete ruthless audit of the Shadow AI Trading System. Follow the exact 4-section format. Be specific, blunt, and final. No alternatives, no maybes. This is the system's fate.")} disabled={loading} style={{
           fontSize: 11, padding: "4px 10px", cursor: "pointer",
           border: "0.5px solid var(--color-border-secondary)",
           borderRadius: "var(--border-radius-md)",
