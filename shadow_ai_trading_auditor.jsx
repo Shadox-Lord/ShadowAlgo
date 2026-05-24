@@ -1,7 +1,7 @@
 import { useState, useRef, useEffect } from "react";
 
-// System prompt moved to server-side API route for security
-// See /pages/api/audit.js - ANTHROPIC_API_KEY stored in Vercel environment variables
+// Comment at top of file updated - see line 4
+// Dependencies: npm install openai
 
 function TypingIndicator() {
   return (

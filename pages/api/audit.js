@@ -3,17 +3,19 @@
  * 
  * Features:
  * - Real-time market data (Binance)
- * - Secure LLM integration (Anthropic)
+ * - Secure LLM integration (Qwen3.6-Plus via OpenAI-compatible API)
  * - Strict Risk Management (Kill switches, position sizing)
  * - Rate limiting & Input validation
  * - Comprehensive logging
  */
 
-import Anthropic from '@anthropic-ai/sdk';
+import OpenAI from 'openai';
 
-// Initialize Anthropic (Server-side only)
-const anthropic = new Anthropic({
-  apiKey: process.env.ANTHROPIC_API_KEY,
+// Initialize Qwen via OpenAI-compatible API (Server-side only)
+// Qwen3.6-Plus is accessed through Alibaba Cloud's DashScope or compatible endpoints
+const openai = new OpenAI({
+  apiKey: process.env.QWEN_API_KEY,
+  baseURL: process.env.QWEN_BASE_URL || 'https://dashscope.aliyuncs.com/compatible-mode/v1',
 });
 
 // Configuration
@@ -120,9 +122,10 @@ export default async function handler(req, res) {
     return res.status(429).json({ error: 'Rate limit exceeded. Try again in 1 hour.' });
   }
 
-  if (!process.env.ANTHROPIC_API_KEY) {
-    console.error('Missing API Key');
-    return res.status(500).json({ error: 'Server configuration error: Missing API Key' });
+  // Check for API key
+  if (!process.env.QWEN_API_KEY) {
+    console.error('Missing Qwen API Key');
+    return res.status(500).json({ error: 'Server configuration error: Missing Qwen API Key' });
   }
 
   // 2. Input Validation
@@ -185,17 +188,19 @@ OUTPUT FORMAT (JSON ONLY):
 }
 `;
 
-    // 5. Call Anthropic API
-    console.log(`[${logId}] Requesting AI analysis...`);
-    const message = await anthropic.messages.create({
-      model: 'claude-3-5-sonnet-20241022',
-      max_tokens: 1000,
-      system: SYSTEM_PROMPT,
-      messages: [
-        {
-          role: 'user',
-          content: `Analyze ${symbol} based on the last ${marketData.length} candles. Current Price: ${currentPrice}.
-          
+    // 5. Call Qwen API (OpenAI-compatible format)
+    console.log(`[${logId}] Requesting AI analysis from Qwen3.6-Plus...`);
+    
+    // Combine system prompt with user message for Qwen
+    const messages = [
+      {
+        role: 'system',
+        content: SYSTEM_PROMPT
+      },
+      {
+        role: 'user',
+        content: `Analyze ${symbol} based on the last ${marketData.length} candles. Current Price: ${currentPrice}.
+        
 Recent Data (OHLCV):
 ${JSON.stringify(marketData.slice(-10))}
 
@@ -205,20 +210,31 @@ Account Context:
 - Max Risk Per Trade: ${CONFIG.MAX_TRADE_RISK_PERCENT}%
 
 Provide your trading decision in valid JSON format.`
-        }
-      ]
+      }
+    ];
+    
+    const completion = await openai.chat.completions.create({
+      model: process.env.QWEN_MODEL || 'qwen-plus',
+      messages: messages,
+      max_tokens: 1000,
+      temperature: 0.3,
+      response_format: { type: 'json_object' }
     });
 
     // 6. Parse & Validate AI Response
     let aiResponse;
     try {
-      const textContent = message.content.find(c => c.type === 'text')?.text || '';
-      // Extract JSON from markdown code blocks if present
-      const jsonMatch = textContent.match(/```json\s*([\s\S]*?)\s*```/) || textContent.match(/\{[\s\S]*\}/);
-      const jsonString = jsonMatch ? jsonMatch[1] || jsonMatch[0] : textContent;
-      aiResponse = JSON.parse(jsonString);
+      // Qwen returns response in content field when using response_format: json_object
+      const textContent = completion.choices[0]?.message?.content || '';
+      
+      if (!textContent) {
+        throw new Error('Empty response from AI');
+      }
+      
+      aiResponse = JSON.parse(textContent);
     } catch (e) {
       console.error('AI Response Parsing Failed:', e);
+      console.error('Raw response:', completion.choices[0]?.message?.content);
       throw new Error('AI returned invalid data format');
     }
 
