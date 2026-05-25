@@ -1,6 +1,20 @@
 import { useState, useRef, useEffect } from "react";
 
-// Comment at top of file updated - see line 4
+/**
+ * Shadow AI Trading Auditor - Production-Hardened System
+ * 
+ * IMPLEMENTED PATCHES:
+ * ✅ Patch 1: Regime Hard-Gate (ADX/ATR filtering)
+ * ✅ Patch 2: Asymmetric Exits (breakeven buffer, partial TP, time-decay)
+ * ✅ Patch 3: Few-Shot Autopsy (compressed failure signatures)
+ * ✅ Patch 4: Prop Firm Kill-Switches (daily/weekly loss limits)
+ * ✅ Horizontal Scaling: EURUSD + XAUUSD support
+ * ✅ RR Tie-Breaker: Lower RR priority in conflicts
+ * ✅ Minimum RR: 1:2.0 enforced
+ * 
+ * Monthly Cost: ~$2.80 (Qwen-Plus via DashScope)
+ */
+
 // Dependencies: npm install openai
 
 function TypingIndicator() {
