@@ -1,0 +1,17 @@
+{
+  "total_trades": 0,
+  "winning_trades": 0,
+  "losing_trades": 0,
+  "win_rate": 0,
+  "total_pnl": 0,
+  "total_pnl_percent": 0,
+  "profit_factor": 0,
+  "max_drawdown": 0,
+  "max_drawdown_percent": 0,
+  "avg_win": 0,
+  "avg_loss": 0,
+  "avg_rr_ratio": 0,
+  "sharpe_ratio": 0,
+  "trades": [],
+  "equity_curve": []
+}
