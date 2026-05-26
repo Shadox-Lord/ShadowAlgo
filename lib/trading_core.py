@@ -31,9 +31,11 @@ class RegimeFilter:
     """
     PATCH 1: Regime Hard-Gate
     Blocks trades in low-volatility, ranging markets where SMC fails
+    
+    OPTIMIZED: ADX threshold lowered from 20.0 to 14.0 to increase trade frequency
     """
     
-    def __init__(self, adx_threshold: float = 20.0, atr_percentile_threshold: float = 30.0):
+    def __init__(self, adx_threshold: float = 14.0, atr_percentile_threshold: float = 30.0):
         self.adx_threshold = adx_threshold
         self.atr_percentile_threshold = atr_percentile_threshold
     
