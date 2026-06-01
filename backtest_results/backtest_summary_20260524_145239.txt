@@ -1,0 +1,43 @@
+================================================================================
+SHADOW AI TRADING AUDITOR - BACKTEST RESULTS
+================================================================================
+
+Report Generated: 2026-05-24T14:52:39.853093
+Symbol: EURUSD
+Timeframe: H4
+Period: 2022-01-01 to 2024-01-01
+
+--------------------------------------------------------------------------------
+PERFORMANCE METRICS
+--------------------------------------------------------------------------------
+
+Total Trades:          35
+Winning Trades:        13
+Losing Trades:         22
+Win Rate:              37.14%
+
+Total P&L:             $-1,323.53
+Total Return:          -13.24%
+Profit Factor:         0.84
+Sharpe Ratio:          -0.73
+
+Maximum Drawdown:      $5,852.00 (43.79%)
+Average Win:           $539.42
+Average Loss:          $-378.91
+Average R:R Ratio:     1.54:1
+
+--------------------------------------------------------------------------------
+AUDIT VERDICT
+--------------------------------------------------------------------------------
+
+❌ WIN RATE TARGET MISSED: 37.14% < 55%
+⚠️  PROFIT FACTOR WEAK: 0.84 < 1.5
+❌ DRAWDOWN EXCESSIVE: 43.79% > 20%
+
+================================================================================
+DISCLAIMER
+================================================================================
+Past performance does not guarantee future results.
+This backtest uses deterministic SMC rules, not LLM predictions.
+Live trading results will vary due to slippage, spreads, and execution delays.
+Never trade with money you cannot afford to lose.
