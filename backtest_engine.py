@@ -41,7 +41,7 @@ CONFIG = {
     'START_DATE': '2022-01-01',  # 2 years of data
     'END_DATE': '2024-01-01',
     'INITIAL_BALANCE': 10000,
-    'RISK_PER_TRADE': 0.003,  # 0.3% risk per trade (prop firm standard)
+    'RISK_PER_TRADE': 0.002,  # 0.2% risk per trade (reduced from 0.3% to lower drawdown for prop firm compliance)
     'MIN_RR_RATIO': 2.0,  # Reverted from 2.5 for higher win rate
     'MIN_CONFIDENCE_THRESHOLD': 55,
     'MAX_DAILY_LOSS': 0.045,  # 4.5% max daily loss (buffer below 5% prop limit)
@@ -51,7 +51,7 @@ CONFIG = {
     'CACHE_DIR': './backtest_cache',
     
     # Patch 1: Regime Filter Parameters
-    'MIN_ADX': 20,  # ADX(14) must be above 20 for trending market
+    'MIN_ADX': 14,  # ADX(14) must be above 14 for trending market (optimized from 20)
     'MIN_ATR_PERCENTILE': 30,  # ATR must be above 30th percentile
     
     # Patch 2: Asymmetric Exit Parameters
@@ -865,6 +865,7 @@ class BacktestEngine:
         self.consecutive_losses = 0
         self.weekly_pnl = 0.0
         self.last_trade_date = None
+        self.current_day = None  # Track current day for daily reset
     
     def run_backtest(self, candles: List[Candle], strategy: TradingStrategy) -> BacktestResult:
         """
@@ -880,6 +881,12 @@ class BacktestEngine:
         # Iterate through candles (starting after warmup period)
         for i in range(50, len(candles)):
             current_candle = candles[i]
+            current_candle_day = current_candle.timestamp.date()
+            
+            # Check if new day - reset daily PnL
+            if self.current_day != current_candle_day:
+                self.current_day = current_candle_day
+                self.daily_pnl = 0.0
             
             # Patch 4: Check kill-switches before any trading
             if self.consecutive_losses >= CONFIG['MAX_CONSECUTIVE_LOSSES']:
@@ -888,8 +895,6 @@ class BacktestEngine:
             
             if self.daily_pnl <= -CONFIG['MAX_DAILY_LOSS'] * self.balance:
                 print(f"⛔ DAILY LOSS LIMIT HIT: {self.daily_pnl:.2f}. Skipping rest of day.")
-                # Reset daily PnL at start of new day (simplified)
-                self.daily_pnl = 0.0
                 continue
             
             # Check if we have an open trade
@@ -1040,15 +1045,10 @@ class BacktestEngine:
         # PATCH 4: Update kill-switch trackers
         trade_date = self.current_trade.exit_time.date()
         
-        # Reset daily/weekly counters if new day/week
-        if self.last_trade_date and trade_date != self.last_trade_date:
-            self.daily_pnl = 0.0
-            # Simple week reset (every 7 days)
-            if (trade_date - self.last_trade_date).days >= 7:
-                self.weekly_pnl = 0.0
-        
-        # Update daily PnL
-        self.daily_pnl += self.current_trade.pnl
+        # Daily PnL is now tracked by current_day in main loop
+        # Only update daily_pnl with this trade's PnL if it's on the same day
+        if self.current_day == trade_date:
+            self.daily_pnl += self.current_trade.pnl
         
         # Update consecutive losses
         if self.current_trade.pnl < 0:
