@@ -358,5 +358,5 @@ To deploy updates to `Shadow_Portfolio_Hub.mq5`:
 ---
 
 *Document Version: 1.0*
-*Last Updated: June 2025*
+*Last Updated: June 2026*
 *System Version: Shadow Portfolio Hub v1.00*
