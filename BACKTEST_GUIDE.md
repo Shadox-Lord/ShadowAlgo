@@ -1,25 +1,26 @@
 # Backtest Engine Setup & Usage Guide
 
 ## Overview
-This Python script runs the Shadow AI Trading Auditor's SMC (Smart Money Concepts) strategy against 2 years of historical EUR/USD data to validate performance claims.
+This Python script runs the Shadow AI Trading Auditor's multi-strategy portfolio (NQ ORB, Gold Pullback, Grading Bot) against **3 years** of historical data to validate performance claims.
 
-**Important**: This uses **deterministic rules**, not LLM calls per candle. LLMs are too expensive and non-deterministic for backtesting. The LLM (Qwen) is only used for daily thesis generation in live trading.
+**Important**: This uses **deterministic rules**, not LLM calls per candle. LLMs are too expensive and non-deterministic for backtesting. The LLM (Qwen 3.6-Plus) is only used for final SMC structural validation in live trading after passing through the Kronos forecasting gate.
 
 ## Prerequisites
 
 ### 1. Install Dependencies
 ```bash
-pip install requests
+pip install -r requirements.txt
 ```
 
 ### 2. Get Free API Key (Optional but Recommended)
-The script works with a demo key, but has limited requests. For full 2-year data:
+The script works with a demo key, but has limited requests. For full 3-year data:
 
-1. Sign up at [TwelveData](https://twelvedata.com/pricing) - Free tier: 100 requests/day
+1. Sign up at [TwelveData](https://twelvedata.com/pricing) or [OANDA](https://www.oanda.com/account/tpa/personal-token/) - Free tier available
 2. Get your API key from dashboard
 3. Set environment variable:
    ```bash
    export TWELVEDATA_API_KEY="your_api_key_here"
+   export OANDA_API_KEY="your_oanda_key_here"
    ```
 
 ## Running the Backtest

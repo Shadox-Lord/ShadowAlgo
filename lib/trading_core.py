@@ -150,18 +150,21 @@ class RiskManager:
     """
     PATCH 2 & 4: Asymmetric Exits and Prop Firm Kill-Switches
     Manages position sizing, breakeven logic, and circuit breakers
+    
+    CRITICAL UPDATE: Daily drawdown halt (0.60%) calculated using real-time
+    floating equity (balance + unrealized PnL), not just closed balance.
     """
     
     def __init__(self, 
                  account_balance: float = 100000,
                  max_risk_per_trade: float = 0.003,  # 0.3%
-                 daily_loss_limit: float = 0.045,    # 4.5%
+                 daily_loss_limit: float = 0.006,    # 0.60% FLOATING EQUITY HALT
                  consecutive_loss_limit: int = 3,
                  weekly_loss_limit: float = 0.08):   # 8%
         
         self.account_balance = account_balance
         self.max_risk_per_trade = max_risk_per_trade
-        self.daily_loss_limit = daily_loss_limit
+        self.daily_loss_limit = daily_loss_limit  # 0.60% hard stop
         self.consecutive_loss_limit = consecutive_loss_limit
         self.weekly_loss_limit = weekly_loss_limit
         
@@ -170,12 +173,24 @@ class RiskManager:
         self.weekly_pnl = 0.0
         self.consecutive_losses = 0
         self.total_trades_today = 0
+        self.daily_start_balance = account_balance  # Track starting balance for DD calc
+        self.unrealized_pnl = 0.0  # Floating PnL from open positions
     
     def reset_daily(self):
         """Reset daily counters (call at start of each trading day)"""
         self.daily_pnl = 0.0
         self.consecutive_losses = 0
         self.total_trades_today = 0
+        self.daily_start_balance = self.account_balance + self.unrealized_pnl
+        self.unrealized_pnl = 0.0
+    
+    def update_floating_equity(self, unrealized_pnl: float):
+        """Update unrealized PnL from open positions for floating equity calc"""
+        self.unrealized_pnl = unrealized_pnl
+    
+    def get_floating_equity(self) -> float:
+        """Returns current floating equity (balance + unrealized PnL)"""
+        return self.daily_start_balance + self.daily_pnl + self.unrealized_pnl
     
     def reset_weekly(self):
         """Reset weekly counters (call at start of each week)"""
@@ -195,13 +210,20 @@ class RiskManager:
     def check_kill_switches(self) -> Tuple[bool, str]:
         """
         PATCH 4: Prop Firm Kill-Switches
+        CRITICAL: Uses floating equity (balance + unrealized PnL) for daily DD calc
+        
         Returns (can_trade, reason)
         """
-        daily_loss_pct = self.daily_pnl / self.account_balance
+        # Calculate floating equity drawdown
+        current_floating_equity = self.get_floating_equity()
+        floating_dd_amount = self.daily_start_balance - current_floating_equity
+        floating_dd_pct = floating_dd_amount / self.daily_start_balance if self.daily_start_balance > 0 else 0
+        
         weekly_loss_pct = self.weekly_pnl / self.account_balance
         
-        if daily_loss_pct <= -self.daily_loss_limit:
-            return False, f"Daily loss limit reached: {daily_loss_pct:.2%}"
+        # 0.60% FLOATING EQUITY HALT - Immediate trigger
+        if floating_dd_pct >= self.daily_loss_limit:
+            return False, f"CRITICAL: Floating equity DD {floating_dd_pct:.2%} >= {self.daily_loss_limit:.2%} limit - E-STOP TRIGGERED"
         
         if weekly_loss_pct <= -self.weekly_loss_limit:
             return False, f"Weekly loss limit reached: {weekly_loss_pct:.2%}"
@@ -209,7 +231,7 @@ class RiskManager:
         if self.consecutive_losses >= self.consecutive_loss_limit:
             return False, f"Consecutive loss limit reached: {self.consecutive_losses}"
         
-        return True, "All kill-switches clear"
+        return True, f"All kill-switches clear (Floating DD: {floating_dd_pct:.2%}, Daily Start: ${self.daily_start_balance:.2f})"
     
     def calculate_position_size(self, entry: float, stop_loss: float, asset: str = "EURUSD") -> float:
         """
