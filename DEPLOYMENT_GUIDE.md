@@ -1,14 +1,15 @@
-# Shadow AI Trading Auditor - Production Deployment Guide
+# Shadow AI Trading Auditor - Production Deployment Guide v3.0
 
 ## ✅ Security Fixes Completed
 
 ### Vulnerabilities Fixed:
 1. **API Key Exposure** - Moved to server-side environment variables
-2. **Real-time Market Data** - Integrated Binance API for live prices
-3. **Risk Management** - Added position sizing, R:R validation, confidence thresholds
+2. **Real-time Market Data** - Integrated OANDA v20 API + TwelveData fallback for Forex/Indices
+3. **Risk Management** - Added position sizing, R:R validation, confidence thresholds, floating equity DD monitoring
 4. **Rate Limiting** - IP-based limiting (10 requests/hour)
 5. **Input Validation** - Server-side validation for all inputs
-6. **Kill Switches** - Auto-rejects trades below 70% confidence or < 1:2 R:R
+6. **Kill Switches** - Auto-rejects trades below 70% confidence or < 2.0 R:R
+7. **Database Persistence** - Supabase PostgreSQL for immutable audit trails
 
 ---
 
@@ -17,15 +18,25 @@
 ### Step 1: Install Dependencies
 
 ```bash
-npm install @anthropic-ai/sdk
+npm install openai @supabase/supabase-js
 ```
 
 ### Step 2: Set Environment Variables in Vercel
 
 1. Go to your Vercel Dashboard → Project → Settings → Environment Variables
-2. Add the following variable:
-   - **Name:** `ANTHROPIC_API_KEY`
-   - **Value:** Your Anthropic API key (get from https://console.anthropic.com)
+2. Add the following variables:
+   - **Name:** `QWEN_API_KEY`
+     - **Value:** Your Alibaba DashScope API key (get from https://dashscope.console.aliyun.com)
+   - **Name:** `QWEN_BASE_URL`
+     - **Value:** `https://dashscope.aliyuncs.com/compatible-mode/v1`
+   - **Name:** `OANDA_API_KEY`
+     - **Value:** Your OANDA v20 API key (demo account: https://fxpractice.oanda.com)
+   - **Name:** `TWELVEDATA_API_KEY`
+     - **Value:** Your TwelveData API key (free tier: https://twelvedata.com/pricing)
+   - **Name:** `SUPABASE_URL`
+     - **Value:** Your Supabase project URL (https://app.supabase.com)
+   - **Name:** `SUPABASE_SERVICE_ROLE_KEY`
+     - **Value:** Your Supabase service role key
 3. Click "Save"
 
 ### Step 3: Deploy to Vercel
@@ -42,25 +53,24 @@ Or push to your Git repository connected to Vercel for automatic deployment.
 
 ```
 ┌─────────────────┐      ┌──────────────────────┐      ┌─────────────────┐
-│   React Client  │ ───► │  Vercel Edge Function │ ───► │  Anthropic API  │
-│   (Browser)     │      │  (/api/audit.js)      │      │  (Claude 3.5)   │
+│   React Client  │ ───► │  Vercel Edge Function │ ───► │  Qwen 3.6-Plus  │
+│   (Browser)     │      │  (/api/audit.js)      │      │  (DashScope)    │
 └─────────────────┘      └──────────────────────┘      └─────────────────┘
                                 │
-                                ▼
-                         ┌─────────────────┐
-                         │  Binance API    │
-                         │  (Market Data)  │
-                         └─────────────────┘
+                                ├──► OANDA v20 API (Forex/Indices)
+                                ├──► TwelveData (Fallback)
+                                └──► Supabase PostgreSQL (Audit Trail)
 ```
 
 ### Data Flow:
 1. User clicks "Run Audit" in browser
 2. Frontend sends request to `/api/audit` (your Vercel function)
-3. Backend fetches real-time market data from Binance
-4. Backend calls Anthropic API with market data + system prompt
+3. Backend fetches real-time market data from OANDA v20 API (or TwelveData fallback)
+4. Backend calls Qwen 3.6-Plus API with market data + system prompt
 5. AI analyzes and returns trading decision
-6. Backend validates risk metrics (confidence, R:R, position size)
-7. Formatted response sent back to client
+6. Backend validates risk metrics (confidence ≥70%, R:R ≥2.0, position size)
+7. Response persisted to Supabase audit trail
+8. Formatted response sent back to client
 
 **Security:** API key and system prompt NEVER leave the server.
 
@@ -163,10 +173,10 @@ const marketData = await fetchMarketData(symbol, '4h'); // 1h, 4h, 1d, etc.
 ```
 
 ### Use Different Symbols:
-Frontend can pass any valid Binance symbol:
+Frontend can pass any valid OANDA/TwelveData symbol (Forex, Indices, Commodities):
 ```javascript
 body: JSON.stringify({
-  symbol: "ETHUSDT", // or "EURUSD", "XAUUSD", etc.
+  symbol: "EURUSD", // or "XAUUSD", "US100", "GBPUSD", etc.
   accountBalance: 50000,
   riskPreference: "aggressive"
 })
@@ -205,8 +215,10 @@ body: JSON.stringify({
 ## 📞 Support & Resources
 
 - **Vercel Docs:** https://vercel.com/docs
-- **Anthropic API:** https://docs.anthropic.com
-- **Binance API:** https://binance-docs.github.io/apidocs/
+- **Alibaba DashScope (Qwen):** https://help.aliyun.com/zh/dashscope
+- **OANDA v20 API:** https://developer.oanda.com/rest-live-v20/introduction/
+- **TwelveData API:** https://twelvedata.com/docs
+- **Supabase:** https://supabase.com/docs
 - **Next.js:** https://nextjs.org/docs
 
 ---

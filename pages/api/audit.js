@@ -1,18 +1,20 @@
 /**
- * Shadow AI Trading Auditor - Production Backend v2.0
+ * Shadow AI Trading Auditor - Production Backend v3.0
  * 
  * Features:
- * - Multi-asset support (EURUSD, XAUUSD)
- * - Real-time market data (Binance/OANDA)
- * - Secure LLM integration (Qwen-Plus via DashScope)
+ * - Multi-asset support (EURUSD, XAUUSD, US100)
+ * - Real-time market data (OANDA/TwelveData)
+ * - Secure LLM integration (Qwen 3.6-Plus via Alibaba DashScope)
  * - Regime-aware risk management (ADX/ATR filters)
  * - Asymmetric exit protocols (Breakeven, Partial TP, Time-decay)
- * - Prop firm kill-switches (Daily loss, consecutive losses)
+ * - Prop firm kill-switches (Daily loss based on floating equity)
  * - Few-shot autopsy injection (Learning from past failures)
  * - Rate limiting & Input validation
+ * - PostgreSQL/Supabase audit trail persistence
  */
 
 import OpenAI from 'openai';
+import { createClient } from '@supabase/supabase-js';
 
 // Initialize Qwen via Alibaba Cloud DashScope (Server-side only)
 const openai = new OpenAI({
@@ -174,28 +176,61 @@ function checkRateLimit(ip) {
   return true;
 }
 
-// Helper: Fetch Real Market Data (Binance Public API)
+// Helper: Fetch Real Market Data (OANDA v20 API / TwelveData Fallback)
 async function fetchMarketData(symbol, interval = '1h', limit = 50) {
   try {
-    const url = `https://api.binance.com/api/v3/klines?symbol=${symbol.toUpperCase()}&interval=${interval}&limit=${limit}`;
+    // Map symbol format for OANDA (EURUSD -> EUR_USD)
+    const oandaSymbol = symbol.replace('/', '_').toUpperCase();
+    
+    // Try OANDA first (requires API key in production)
+    if (process.env.OANDA_API_KEY && process.env.OANDA_API_KEY !== 'demo') {
+      const url = `https://api-fxpractice.oanda.com/v3/instruments/${oandaSymbol}/candles?count=${limit}&granularity=${interval.toUpperCase()}`;
+      const response = await fetch(url, {
+        headers: {
+          'Authorization': `Bearer ${process.env.OANDA_API_KEY}`,
+          'Accept': 'application/json'
+        },
+        timeout: 5000
+      });
+      
+      if (response.ok) {
+        const data = await response.json();
+        return data.candles.map(candle => ({
+          time: candle.time,
+          open: parseFloat(candle.mid.o),
+          high: parseFloat(candle.mid.h),
+          low: parseFloat(candle.mid.l),
+          close: parseFloat(candle.mid.c),
+          volume: parseInt(candle.volume) || 0
+        }));
+      }
+    }
+    
+    // Fallback to TwelveData (free tier available)
+    const twelvedataKey = process.env.TWELVEDATA_API_KEY || 'demo';
+    const twelvedataSymbol = symbol.includes('US100') ? 'US100' : symbol.replace('/', '');
+    const url = `https://api.twelvedata.com/time_series?symbol=${twelvedataSymbol}&interval=${interval === '1h' ? '60min' : interval}&outputsize=${limit}&apikey=${twelvedataKey}`;
     const response = await fetch(url, { timeout: 5000 });
     
-    if (!response.ok) throw new Error(`Binance API Error: ${response.status}`);
+    if (!response.ok) throw new Error(`TwelveData API Error: ${response.status}`);
     
     const data = await response.json();
     
-    // Format data for AI consumption
-    return data.map(candle => ({
-      time: new Date(candle[0]).toISOString(),
-      open: parseFloat(candle[1]),
-      high: parseFloat(candle[2]),
-      low: parseFloat(candle[3]),
-      close: parseFloat(candle[4]),
-      volume: parseFloat(candle[5])
-    }));
+    if (data.values) {
+      return data.values.map(candle => ({
+        time: candle.datetime,
+        open: parseFloat(candle.open),
+        high: parseFloat(candle.high),
+        low: parseFloat(candle.low),
+        close: parseFloat(candle.close),
+        volume: parseFloat(candle.volume) || 0
+      }));
+    }
+    
+    throw new Error('Invalid data format from TwelveData');
   } catch (error) {
     console.error('Market Data Fetch Failed:', error);
-    throw new Error('Failed to fetch real-time market data');
+    throw new Error('Failed to fetch real-time market data from OANDA/TwelveData');
   }
 }
 
