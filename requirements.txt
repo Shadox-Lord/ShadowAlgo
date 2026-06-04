@@ -1,28 +1,7 @@
-# Shadow AI Trading System - Python Dependencies
-
-# Core Data & Utilities
-pandas>=2.0.0
-numpy>=1.24.0
-requests>=2.31.0
-python-dotenv>=1.0.0
-backoff>=2.2.1
-
-# Validation & Schema
-pydantic>=2.0.0
-
-# LLM Integration (Qwen via DashScope)
-dashscope>=1.14.0
-
-# Time-Series Foundation Model (Kronos)
-torch>=2.0.0
-transformers>=4.35.0
-
-# Telegram Bot
-python-telegram-bot>=20.0
-
-# Database (Supabase PostgreSQL)
+# Vercel Deployment
+fastapi>=0.104.0
+uvicorn>=0.24.0
+httpx>=0.25.0
 supabase>=2.0.0
 psycopg2-binary>=2.9.0
-
-# OANDA Bridge (Forex/Commodities/Futures)
-oanda>=0.1.0
+python-telegram-bot>=20.0
