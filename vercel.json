@@ -1,0 +1,26 @@
+{
+  "version": 2,
+  "builds": [
+    {
+      "src": "api/index.py",
+      "use": "@vercel/python"
+    },
+    {
+      "src": "api/webhooks/telegram.py",
+      "use": "@vercel/python"
+    }
+  ],
+  "routes": [
+    { "src": "/api/(.*)", "dest": "api/index.py" },
+    { "src": "/api/webhooks/telegram", "dest": "api/webhooks/telegram.py" }
+  ],
+  "crons": [
+    {
+      "path": "/api/cron/check-signals",
+      "schedule": "*/15 * * * *"
+    }
+  ],
+  "env": {
+    "PYTHON_VERSION": "3.11"
+  }
+}

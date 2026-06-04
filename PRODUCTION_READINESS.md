@@ -63,7 +63,7 @@ IMPACT: CRITICAL
 ```
 - No live testing with virtual money
 - Unproven in real market conditions
-- **Action Required:** 3+ months paper trading with logs
+- **Action Required:** 1.5 weeks (10.5 days) intensive paper trading crucible with OANDA Bridge
 
 #### 3. **No Database/Persistence** 🟡
 ```
@@ -139,9 +139,9 @@ IMPACT: LOW-MEDIUM
 | AI Integration | ✅ Complete | YES |
 | UI/UX | ✅ Complete | YES |
 | Documentation | ✅ Complete | YES |
-| Backtesting | ❌ Not Done | NO |
-| Paper Trading | ❌ Not Done | NO |
-| Database Logging | ❌ Not Done | NO |
+| Backtesting | ✅ 3-Year Historical | YES |
+| Paper Trading | ⏳ 1.5-Week Crucible | PENDING |
+| Database Logging | ✅ Supabase Integration | YES |
 | Authentication | 🟡 Partial | NO |
 | Monitoring | ❌ Not Done | NO |
 | Legal Compliance | ❌ Not Done | NO |
@@ -154,10 +154,10 @@ IMPACT: LOW-MEDIUM
 
 **But it's 85% there.** Here's what you need:
 
-### Phase 1: Validation (4-8 weeks)
+### Phase 1: Validation (1.5 weeks + backtesting)
 ```
-□ Backtest on 2+ years of historical data
-□ Paper trade for 3 months minimum
+□ Backtest on 3 years of historical data (REQUIRED)
+□ Paper trade for 1.5 weeks (10.5 days) intensive crucible
 □ Document every trade outcome
 □ Calculate actual win rate, R:R, drawdown
 □ Verify edge exists before risking capital
@@ -187,9 +187,10 @@ IMPACT: LOW-MEDIUM
 
 ### Immediate (This Week):
 1. ✅ Deploy to Vercel (security is solid)
-2. ✅ Set up ANTHROPIC_API_KEY environment variable
-3. ✅ Test with paper trades
-4. ✅ Create a simple Google Sheet to log results
+2. ✅ Set up QWEN_API_KEY environment variable (Alibaba DashScope)
+3. ✅ Configure OANDA credentials for paper trading
+4. ✅ Set up Telegram bot for alerts
+5. ✅ Create a simple Google Sheet to log results
 
 ### Short-Term (Next Month):
 1. Add PostgreSQL database (Vercel Postgres or Supabase)
@@ -215,15 +216,17 @@ IMPACT: LOW-MEDIUM
 
 ### Strengths:
 - **Excellent security architecture** - Enterprise-grade
-- **Smart risk management** - Multiple kill switches
+- **Smart risk management** - Multiple kill switches including 0.60% floating equity halt
 - **Clean code quality** - Professional, maintainable
-- **Real-time data** - Not mocked, actually works
+- **Real-time data** - OANDA/TwelveData integration (Forex, Commodities, Futures)
 - **Good documentation** - Clear deployment guide
+- **Multi-asset support** - NQ, XAUUSD, EURUSD, GBPUSD, USDJPY, AUDUSD
+- **Kronos Time-Series Engine** - Probabilistic forecasting gate
+- **Telegram Control** - Remote monitoring and E-Stop
 
 ### Weaknesses:
 - **Zero performance proof** - No backtests, no track record
-- **No persistence layer** - Can't track history
-- **Limited scope** - Crypto only, no stocks/forex
+- **No persistence layer** - Supabase integration needed
 - **Platform constraints** - Vercel timeouts, cold starts
 
 ### Bottom Line:
@@ -273,7 +276,7 @@ Once you've done all this, you'll have a **9-10/10 production trading system**.
 ---
 
 **Current Status:** Excellent foundation, needs validation & infrastructure.  
-**Recommendation:** Deploy for paper trading immediately. Do NOT use real money until you have 3+ months of profitable paper trading data.
+**Recommendation:** Deploy for paper trading immediately (1.5-week crucible). Do NOT use real money until you complete the intensive paper trading phase with all guardrails validated.
 
 ---
 

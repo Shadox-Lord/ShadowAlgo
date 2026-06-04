@@ -38,7 +38,7 @@ CONFIG = {
     'SYMBOL': 'EURUSD',  # Also supports 'XAUUSD' (Patch 5 - Horizontal Scaling)
     'TIMEFRAME': 'H4',  # Primary analysis timeframe
     'LOOKBACK_PERIODS': 50,  # Candles for structure analysis
-    'START_DATE': '2022-01-01',  # 2 years of data
+    'START_DATE': '2021-01-01',  # 3 years of data (updated for validation timeline)
     'END_DATE': '2024-01-01',
     'INITIAL_BALANCE': 10000,
     'RISK_PER_TRADE': 0.002,  # 0.2% risk per trade (reduced from 0.3% to lower drawdown for prop firm compliance)
