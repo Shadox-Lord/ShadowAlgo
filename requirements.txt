@@ -1,7 +1,22 @@
-# Vercel Deployment
-fastapi>=0.104.0
-uvicorn>=0.24.0
+# Shadow Portfolio Hub - Serverless Dependencies
+# Optimized for Vercel Serverless Runtime (Python 3.11)
+
+# Core HTTP & Async
 httpx>=0.25.0
-supabase>=2.0.0
-psycopg2-binary>=2.9.0
-python-telegram-bot>=20.0
+
+# Supabase Client
+supabase>=2.3.0
+
+# Qwen/DashScope LLM Integration
+dashscope>=1.14.0
+openai>=1.0.0
+
+# PyTorch (Kronos Engine) - CPU-only for serverless
+torch>=2.0.0
+--extra-index-url https://download.pytorch.org/whl/cpu
+
+# Telegram Bot (webhook mode only - no polling)
+python-telegram-bot[job-queue]>=20.0
+
+# Utilities
+numpy>=1.24.0
