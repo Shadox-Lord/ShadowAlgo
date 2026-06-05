@@ -2,22 +2,30 @@
   "version": 2,
   "builds": [
     {
-      "src": "api/index.py",
+      "src": "pages/api/telegram.py",
       "use": "@vercel/python"
     },
     {
-      "src": "api/webhooks/telegram.py",
+      "src": "pages/api/signal_router.py",
       "use": "@vercel/python"
     }
   ],
   "routes": [
-    { "src": "/api/(.*)", "dest": "api/index.py" },
-    { "src": "/api/webhooks/telegram", "dest": "api/webhooks/telegram.py" }
+    { "src": "/api/telegram", "dest": "pages/api/telegram.py" },
+    { "src": "/api/signal_router", "dest": "pages/api/signal_router.py" }
   ],
   "crons": [
     {
-      "path": "/api/cron/check-signals",
+      "path": "/api/signal_router?timeframe=5m",
+      "schedule": "*/5 * * * *"
+    },
+    {
+      "path": "/api/signal_router?timeframe=15m",
       "schedule": "*/15 * * * *"
+    },
+    {
+      "path": "/api/signal_router?timeframe=1h",
+      "schedule": "0 * * * *"
     }
   ],
   "env": {

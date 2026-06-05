@@ -1,362 +1,365 @@
-# Shadow Portfolio Hub - End-to-End Deployment Blueprint
+# Shadow Portfolio Hub - Serverless Deployment Blueprint
 
 ## Executive Summary
 
-This document provides a chronological, step-by-step guide to deploying the **Shadow Portfolio Hub** unified trading ecosystem to a 24/5 cloud environment. The system merges four distinct strategies (NQ ORB, Gold Pullback, Grading Bot) into a single Master EA with centralized risk management.
+This document provides a complete guide to deploying the **Shadow Portfolio Hub** as a **100% Serverless Signal Generation Engine** on Vercel. The system has been architecturally pivoted from a hybrid VPS/MT5 automated system to a human-in-the-loop model.
+
+**Key Changes:**
+- ✅ **Eliminated:** Windows VPS, MQL5 scripts, Python daemons, automated order execution
+- ✅ **Implemented:** Serverless signal generation with manual Telegram-to-MT5 execution (60-second window)
+- ✅ **Risk Model:** Method A - Fixed Initial Balance (0.30% risk of user-defined static balance in Supabase)
 
 ---
 
-## Phase 1: Infrastructure Staging
-
-### 1.1 Cloud Provider Selection
-
-**Recommended:** GCP Windows Server or AWS EC2 Windows
-- **Instance Type:** Minimum 2 vCPU, 4GB RAM
-- **OS:** Windows Server 2019/2022
-- **Location:** Choose region closest to broker's server (typically London NY4 for forex, Chicago for futures)
-- **Uptime SLA:** 99.9% minimum
-
-### 1.2 Network Configuration
+## Architecture Overview
 
 ```
-┌─────────────────────────────────────────────────────────────┐
-│                    INTERNET                                  │
-│         ┌──────────────────────────────────────┐            │
-│         │  Cloud VPS (GCP/AWS Windows Server)  │            │
-│         │  ┌────────────────────────────────┐  │            │
-│         │  │      MetaTrader 5 Terminal     │  │            │
-│         │  │  ┌──────────────────────────┐  │  │            │
-│         │  │  │  Shadow_Portfolio_Hub    │  │  │            │
-│         │  │  │     (Master EA)          │  │  │            │
-│         │  │  └──────────────────────────┘  │  │            │
-│         │  └────────────────────────────────┘  │            │
-│         └──────────────────────────────────────┘            │
-│                          │                                   │
-│         ┌────────────────┼────────────────┐                 │
-│         ▼                ▼                ▼                 │
-│    ┌─────────┐    ┌─────────┐    ┌─────────┐               │
-│    │ Broker  │    │ Twelve  │    │ Alibaba │               │
-│    │  MT5    │    │  Data   │    │ DashScope│              │
-│    │ Server  │    │  API    │    │  (Qwen) │               │
-│    └─────────┘    └─────────┘    └─────────┘               │
-└─────────────────────────────────────────────────────────────┘
+┌─────────────────────────────────────────────────────────────────┐
+│                        VERCEL SERVERLESS                         │
+│  ┌──────────────────────┐    ┌──────────────────────────────┐  │
+│  │   Signal Router      │    │   Telegram Webhook Handler   │  │
+│  │   (Cron Triggered)   │    │   (Command Processing)       │  │
+│  │                      │    │                              │  │
+│  │  1. Fetch OHLCV      │    │  /setbalance [value]         │  │
+│  │  2. Kronos Gate      │    │  /status                     │  │
+│  │  3. Qwen SMC Audit   │    │  /estop                      │  │
+│  │  4. Calculate Lots   │    │  /pause [module]             │  │
+│  │  5. Send Alert       │    │  /resume [module]            │  │
+│  └──────────┬───────────┘    └──────────────┬───────────────┘  │
+│             │                               │                  │
+│             └───────────────┬───────────────┘                  │
+│                             ▼                                  │
+│                    ┌─────────────────┐                         │
+│                    │   Supabase DB   │                         │
+│                    │   (PostgreSQL)  │                         │
+│                    └─────────────────┘                         │
+└─────────────────────────────────────────────────────────────────┘
+                             │
+                             ▼
+┌─────────────────────────────────────────────────────────────────┐
+│                         TELEGRAM                                 │
+│  Signal Alerts → User copies to MT5 mobile app → Manual execute │
+└─────────────────────────────────────────────────────────────────┘
 ```
-
-### 1.3 Security Hardening
-
-1. **Windows Firewall Rules:**
-   - Allow outbound: TCP 443 (HTTPS), TCP 80 (HTTP)
-   - Block all inbound except RDP (change default port from 3389)
-
-2. **User Account Setup:**
-   - Create dedicated user `MT5Trader` (non-administrator)
-   - Enable automatic login for this account
-   - Set strong password policy
-
-3. **Antivirus Exclusions:**
-   - Add exclusions for: `C:\Program Files\MetaTrader 5\`
-   - Exclude `.mq5`, `.ex5`, `.dll` files from real-time scanning
 
 ---
 
-## Phase 2: Environment Setup
+## Phase 1: Prerequisites
 
-### 2.1 MetaTrader 5 Installation
+### 1.1 Required Accounts
 
-1. Download MT5 installer from your broker
-2. Install to default location: `C:\Program Files\MetaTrader 5\`
-3. Login with demo/paper trading account first
-4. Verify connectivity and data feed
+| Service | Purpose | Link |
+|---------|---------|------|
+| **Vercel** | Serverless hosting | https://vercel.com |
+| **Supabase** | PostgreSQL database | https://supabase.com |
+| **Telegram** | Bot for alerts & commands | https://telegram.org |
+| **Alibaba DashScope** | Qwen LLM API | https://dashscope.aliyun.com |
+| **TwelveData** (optional) | Market data feed | https://twelvedata.com |
 
-### 2.2 Directory Structure
+### 1.2 Environment Variables
 
-Create the following structure in MT5 data folder:
+Create a `.env` file locally (never commit to Git):
 
-```
-C:\Users\[Username]\AppData\Roaming\MetaQuotes\Terminal\[InstanceID]\
-├── MQL5\
-│   ├── Experts\
-│   │   └── Shadow_Portfolio_Hub.mq5    ← Main EA file
-│   ├── Include\
-│   │   └── (Standard MQL5 libraries auto-installed)
-│   ├── Presets\
-│   │   └── Shadow_Hub_Default.set      ← Settings preset
-│   ├── Logs\
-│   │   └── (Auto-generated)
-│   └── Files\
-│       └── Shadow_Hub_Performance_*.csv ← Trade exports
-```
+```bash
+# Supabase Configuration
+SUPABASE_URL=https://your-project.supabase.co
+SUPABASE_SERVICE_ROLE_KEY=your-service-role-key
 
-### 2.3 File Deployment Steps
+# Telegram Bot Configuration
+TELEGRAM_BOT_TOKEN=bot_token_from_botfather
+TELEGRAM_CHAT_ID=your_telegram_user_id
 
-1. **Copy EA File:**
-   ```
-   Source: /workspace/Shadow_Portfolio_Hub.mq5
-   Destination: C:\Program Files\MetaTrader 5\MQL5\Experts\
-   ```
-
-2. **Compile in MetaEditor:**
-   - Open MetaEditor (F4 from MT5 terminal)
-   - Navigate to `Experts/Shadow_Portfolio_Hub.mq5`
-   - Press F7 to compile
-   - Verify "0 errors, 0 warnings" in compilation log
-
-3. **Verify Compilation Output:**
-   - Check that `Shadow_Portfolio_Hub.ex5` is created in same directory
-   - File size should be ~50-100KB
-
-### 2.4 Environment Variables (Optional)
-
-For Python-based components (backtesting, WFA):
-
-```powershell
-# Set in Windows System Properties → Environment Variables
-QWEN_API_KEY=sk-your-dashscope-api-key
+# Qwen/DashScope Configuration
+QWEN_API_KEY=your-dashscope-api-key
 QWEN_BASE_URL=https://dashscope.aliyuncs.com/compatible-mode/v1
 QWEN_MODEL=qwen-plus
+
+# Optional: Market Data (if not using simulated data)
 TWELVEDATA_API_KEY=your-twelvedata-key
 ```
 
 ---
 
-## Phase 3: Configuration & Initialization
+## Phase 2: Database Setup
 
-### 3.1 Attach EA to Chart
+### 2.1 Create Supabase Project
 
-1. Open MT5 terminal
-2. Open chart for primary symbol (e.g., EURUSD H1)
-3. Drag `Shadow_Portfolio_Hub` from Navigator → Expert Advisors onto chart
-4. Enable "Allow Algo Trading" (top toolbar button)
-5. Enable "Auto Trading" in EA properties
+1. Go to https://supabase.com and create a new project
+2. Wait for database initialization (~2 minutes)
+3. Navigate to **Settings → API** and copy:
+   - `Project URL` → `SUPABASE_URL`
+   - `service_role secret` → `SUPABASE_SERVICE_ROLE_KEY`
 
-### 3.2 Input Parameter Configuration
+### 2.2 Run Schema Migration
 
-Configure the following inputs in EA Properties → Inputs tab:
+1. Navigate to **SQL Editor** in Supabase dashboard
+2. Copy contents of `/workspace/supabase_schema.sql`
+3. Paste and run the entire script
+4. Verify tables created:
+   - `system_state`
+   - `audit_logs`
+   - `trade_executions`
+   - `performance_metrics`
+   - `module_pause_states`
+   - `system_logs`
 
-#### Global Risk Settings
-| Parameter | Recommended Value | Notes |
-|-----------|------------------|-------|
-| Inp_GlobalRiskPct | 0.30 | 0.30% risk per trade |
-| Inp_EnableNewsFilter | true | Enable NFP/CPI/FOMC blackout |
-| Inp_EnableFridayClose | true | Close positions Friday 20:00 UTC |
+### 2.3 Verify Default State
 
-#### Strategy-Specific Settings
-| Strategy | Enable? | Symbols | Notes |
-|----------|---------|---------|-------|
-| NQ ORB | false (unless US100 chart) | US100, NQ | For Nasdaq only |
-| Shadow | true | EURUSD, GBPUSD | London Killzone |
-| Gold Pullback | true | XAUUSD, GOLD | H1 timeframe |
-| Grading Bot | true | Any | Multi-asset |
+Run this query to confirm default balance is set:
 
-### 3.3 Magic Number Verification
+```sql
+SELECT * FROM system_state WHERE id = 1;
+```
 
-Ensure no other EAs use these magic numbers:
-- 550000 (NQ ORB)
-- 660000 (Shadow - now archived/decommissioned)
-- 770000 (Gold Pullback)
-- 880000 (Grading Bot)
+Expected output: `target_initial_balance = 5000.00`
 
-Check existing positions:
-```mql5
-// Run this in a new EA temporarily to verify
-void OnStart() {
-   for(int i=0; i<PositionsTotal(); i++) {
-      Print("Position ", i, " Magic: ", PositionGetInteger(POSITION_MAGIC));
-   }
-}
+---
+
+## Phase 3: Vercel Deployment
+
+### 3.1 Install Vercel CLI (Optional but Recommended)
+
+```bash
+npm install -g vercel
+```
+
+### 3.2 Deploy via Git (Recommended)
+
+1. **Push code to GitHub:**
+   ```bash
+   git add .
+   git commit -m "Serverless refactor - Human-in-the-loop architecture"
+   git push origin main
+   ```
+
+2. **Connect to Vercel:**
+   - Go to https://vercel.com/new
+   - Import your GitHub repository
+   - Configure project settings:
+     - **Framework Preset:** Other
+     - **Root Directory:** `./`
+     - **Python Version:** 3.11
+
+3. **Add Environment Variables:**
+   In Vercel dashboard → Settings → Environment Variables, add all variables from Section 1.2
+
+4. **Deploy:**
+   Click "Deploy" - Vercel will build and deploy automatically
+
+### 3.3 Deploy via CLI (Alternative)
+
+```bash
+cd /workspace
+vercel login
+vercel --prod
 ```
 
 ---
 
-## Phase 4: System Verification
+## Phase 4: Telegram Bot Configuration
 
-### 4.1 Pre-Launch Checklist
+### 4.1 Create Telegram Bot
 
-Before enabling live autonomous trading:
+1. Open Telegram and search for `@BotFather`
+2. Send `/newbot` command
+3. Follow prompts to name your bot
+4. Save the bot token (e.g., `123456789:ABCdefGHIjklMNOpqrsTUVwxyz`)
 
-- [ ] **Compilation:** Zero errors/warnings in MetaEditor
-- [ ] **Journal Log:** No initialization errors in MT5 Journal tab
-- [ ] **Indicator Handles:** All indicators load successfully (check Experts log)
-- [ ] **Broker Filling Mode:** Auto-detected correctly (FOK/IOC/RETURN)
-- [ ] **Magic Numbers:** No conflicts with existing EAs
-- [ ] **Network Connectivity:** Ping broker server < 50ms
-- [ ] **Account Type:** Verified as Hedging or Netting (EA supports both)
-- [ ] **Minimum Balance:** At least $1,000 for proper lot sizing
+### 4.2 Get Your Chat ID
 
-### 4.2 Diagnostic Test Sequence
+1. Search for `@userinfobot` on Telegram
+2. Start a chat and send any message
+3. It will reply with your User ID (e.g., `123456789`)
+4. This is your `TELEGRAM_CHAT_ID`
 
-Run this sequence to verify all systems:
+### 4.3 Register Webhook
 
-1. **Test 1: Daily Reset Trigger**
-   - Wait for midnight server time or manually trigger
-   - Verify journal shows: `[RISK] New Day Reset. Balance: $XXXX`
+After deployment, register the webhook:
 
-2. **Test 2: News Blackout Detection**
-   - Check journal during NFP/CPI/FOMC events
-   - Verify: `[BLACKOUT] NFP` or similar message appears
+```bash
+curl -X POST "https://api.telegram.org/bot<YOUR_BOT_TOKEN>/setWebhook?url=https://<YOUR_VERCEL_URL>/api/telegram"
+```
 
-3. **Test 3: Friday Close Protection**
-   - On Friday 20:00 UTC, verify all positions close automatically
-   - Journal should show: `[RISK] Friday Close Protection`
+Verify webhook is set:
 
-4. **Test 4: Module Trade Cap**
-   - Manually place 2 trades for a strategy
-   - Attempt 3rd trade - should be blocked
-   - Journal: `[RISK] Module X trade count: 2`
-
-5. **Test 5: Emergency Stop (E-Stop)**
-   - Simulate by setting `Inp_GlobalRiskPct` extremely high temporarily
-   - Or wait for natural drawdown
-   - Verify all positions close and trading halts
-
-### 4.3 CSV Export Verification
-
-After any trade activity:
-1. Navigate to `MQL5/Files/` folder
-2. Locate `Shadow_Hub_Performance_YYYY-MM-DD.csv`
-3. Verify columns: Timestamp, StrategyID, MagicNumber, Type, Lots, Price, SL, TP, Result
-4. Cross-reference with MT5 History tab
+```bash
+curl "https://api.telegram.org/bot<YOUR_BOT_TOKEN>/getWebhookInfo"
+```
 
 ---
 
-## Phase 5: Live Autonomous Trading
+## Phase 5: Cron Job Verification
 
-### 5.1 Paper Trading Phase (MANDATORY - 30 Days Minimum)
+Vercel cron jobs are configured in `vercel.json`:
 
-**DO NOT SKIP THIS PHASE**
+| Schedule | Timeframe | Endpoint |
+|----------|-----------|----------|
+| `*/5 * * * *` | 5-minute | `/api/signal_router?timeframe=5m` |
+| `*/15 * * * *` | 15-minute | `/api/signal_router?timeframe=15m` |
+| `0 * * * *` | Hourly | `/api/signal_router?timeframe=1h` |
 
-1. Run on demo account for 30 consecutive days
-2. Log every trade in external spreadsheet:
-   - Date/Time
-   - Strategy ID
-   - Direction
-   - Entry/Exit
-   - P&L
-   - Reason for entry (from journal)
-3. Calculate metrics weekly:
-   - Win Rate
-   - Profit Factor
-   - Max Drawdown
-   - Average RR
+**Note:** Cron jobs only run on **Hobby plan or higher**. Free tier does not support cron.
 
-**Pass Criteria for Live Deployment:**
-- Win Rate ≥ 40%
-- Profit Factor ≥ 1.3
-- Max Drawdown ≤ 10%
-- Minimum 20 trades executed
-
-### 5.2 Graduated Capital Deployment
-
-Once paper trading passes:
-
-| Week | Capital | Risk % | Max Daily Loss |
-|------|---------|--------|----------------|
-| 1-2 | $500 | 0.15% | $3/day |
-| 3-4 | $1,000 | 0.20% | $6/day |
-| 5-8 | $2,500 | 0.25% | $15/day |
-| 9+ | $5,000+ | 0.30% | $30/day |
-
-**NEVER increase capital until previous tier shows profitability for 2+ weeks.**
-
-### 5.3 Monitoring Schedule
-
-| Frequency | Task |
-|-----------|------|
-| Every 4 hours | Check MT5 connection status |
-| Daily (08:00 UTC) | Review journal logs, verify daily reset |
-| Weekly (Sunday) | Export CSV, calculate weekly metrics |
-| Monthly | Full performance review, adjust parameters if needed |
-
-### 5.4 Emergency Procedures
-
-**If E-Stop triggers:**
-1. Do NOT restart EA immediately
-2. Review journal logs to identify cause
-3. Calculate total drawdown
-4. If drawdown > 10%, halt trading for 48 hours
-5. Analyze losing trades for pattern recognition
-6. Only restart after root cause identified
-
-**If broker disconnects:**
-1. EA will continue managing open positions (SL/TP still active)
-2. No new entries will be made
-3. Reconnect ASAP and check journal for missed events
+To verify cron is working:
+1. Go to Vercel Dashboard → Your Project → Cron
+2. Check last execution timestamps
+3. Review logs in **Functions** tab
 
 ---
 
-## Appendix A: Troubleshooting Guide
+## Phase 6: Testing & Validation
 
-### Common Issues & Solutions
+### 6.1 Test Telegram Commands
+
+Send these commands to your bot:
+
+```
+/status
+```
+
+Expected response:
+```
+📊 SYSTEM STATUS
+
+💰 Target Balance: $5,000.00
+⚠️ Risk Per Trade: $15.00 (0.30%)
+🛑 Trading Halted: NO
+
+MODULES:
+- NQ: ✅ ACTIVE
+- XAUUSD: ✅ ACTIVE
+...
+```
+
+```
+/setbalance 10000
+```
+
+Expected response:
+```
+✅ BALANCE UPDATED
+
+New Target Balance: $10,000.00
+Risk Per Trade (0.30%): $30.00
+```
+
+```
+/pause NQ
+```
+
+Expected response:
+```
+⏸️ Module NQ has been paused.
+```
+
+### 6.2 Manual Signal Execution Flow
+
+1. **Signal Alert Received** (Telegram):
+   ```
+   🟢 NQ 15M LONG
+   
+   📊 ENTRY: 17850.5
+   🛑 SL: 17840.0
+   ✅ TP: 17870.0
+   
+   📐 Lot Size: 0.14
+   💰 Risk: $15.00 (0.30%)
+   📈 RR: 1:1.95
+   
+   ⏰ Time: 14:35 UTC
+   ⚠️ Manual Execute: Copy to MT5 within 60 seconds!
+   ```
+
+2. **User Action** (within 60 seconds):
+   - Open MT5 mobile app
+   - Select NQ (US100) instrument
+   - Set lot size: 0.14
+   - Set entry: 17850.5 (or current market price)
+   - Set SL: 17840.0
+   - Set TP: 17870.0
+   - Execute trade
+
+3. **Post-Trade Update** (optional):
+   Use Supabase dashboard or future command to log fill results
+
+---
+
+## Phase 7: The 1.5-Week Paper Trading Crucible
+
+### 7.1 Mandatory Validation Period
+
+**DO NOT skip this phase.** All users must complete a **10-day paper trading crucible** before live deployment.
+
+### 7.2 Daily Checklist
+
+| Day | Task | Pass Criteria |
+|-----|------|---------------|
+| 1-3 | Execute ALL signals on demo account | 100% execution rate |
+| 4-6 | Track win rate & drawdown | Win rate ≥ 40%, DD ≤ 5% |
+| 7-10 | Refine execution speed | Average execution < 60 seconds |
+
+### 7.3 Metrics to Track
+
+Create a spreadsheet with these columns:
+
+| Date | Asset | Direction | Entry | SL | TP | Lot | Result | PnL | Notes |
+|------|-------|-----------|-------|----|----|-----|--------|-----|-------|
+
+### 7.4 Pass Criteria for Live Trading
+
+- ✅ Minimum 20 trades executed
+- ✅ Win rate ≥ 40%
+- ✅ Profit factor ≥ 1.2
+- ✅ Maximum drawdown ≤ 8%
+- ✅ No single-day loss > 3%
+- ✅ Average execution time < 60 seconds
+
+---
+
+## Appendix A: Troubleshooting
+
+### Common Issues
 
 | Issue | Symptom | Solution |
 |-------|---------|----------|
-| Compilation Error | "undeclared identifier" | Ensure all `#include` statements present |
-| Indicator Failure | "handle INVALID" in log | Check symbol/timeframe compatibility |
-| Order Rejection | "Trade not allowed" | Enable Auto Trading in MT5 toolbar |
-| Magic Conflict | Duplicate magic errors | Change base magic numbers in constants |
-| News Filter False Positive | Trading blocked incorrectly | Verify hardcoded news dates are accurate |
-| Lot Size Zero | "lots <= 0" error | Increase account balance or reduce risk % |
+| Webhook not firing | No alerts received | Re-run `setWebhook` curl command |
+| Unauthorized errors | Commands rejected | Verify `TELEGRAM_CHAT_ID` matches your user ID |
+| Cron not running | No signals generated | Upgrade Vercel plan (cron requires paid tier) |
+| Supabase connection failed | 500 errors | Check `SUPABASE_URL` and `SUPABASE_SERVICE_ROLE_KEY` |
+| Zero lot sizes | Signals show 0.01 lots | Increase balance via `/setbalance` |
 
-### Log File Locations
+### Log Locations
 
-| Log Type | Location |
-|----------|----------|
-| MT5 Terminal Log | `C:\Users\[User]\AppData\Roaming\MetaQuotes\Terminal\[ID]\Logs\` |
-| EA Journal | MT5 Terminal → Toolbox → Journal tab |
-| Experts Log | MT5 Terminal → Toolbox → Experts tab |
-| CSV Exports | `MQL5\Files\Shadow_Hub_Performance_*.csv` |
+- **Vercel Functions:** Dashboard → Functions → Select function → Logs
+- **Supabase Logs:** Dashboard → Database → Query Editor → Run diagnostic queries
+- **Telegram Errors:** Check bot chat for error messages
 
 ---
 
-## Appendix B: Performance Benchmarks
+## Appendix B: Security Best Practices
 
-### Expected Metrics (Based on Backtested Data)
-
-| Metric | Target | Acceptable Range |
-|--------|--------|------------------|
-| Win Rate | 45-55% | 38-60% |
-| Profit Factor | 1.5+ | 1.2-2.0 |
-| Max Drawdown | < 8% | < 12% |
-| Avg RR | 1:2.0 | 1:1.5 to 1:2.5 |
-| Trades/Month | 15-25 | 10-40 |
-| Sharpe Ratio | 1.5+ | 1.0-2.5 |
-
-### Red Flags (Investigate Immediately)
-
-- Win Rate < 35% over 50+ trades
-- Profit Factor < 1.0 over 30+ trades
-- Max Drawdown > 15%
-- Three consecutive losing days
-- Any single day loss > 3%
+1. **Never share your `TELEGRAM_BOT_TOKEN` or `SUPABASE_SERVICE_ROLE_KEY`**
+2. **Enable 2FA on all accounts** (Vercel, Supabase, Telegram)
+3. **Rotate API keys quarterly**
+4. **Use environment variables exclusively** - never hardcode secrets
+5. **Monitor unauthorized access attempts** in Vercel logs
 
 ---
 
-## Appendix C: Update Procedure
+## Appendix C: Cost Breakdown
 
-To deploy updates to `Shadow_Portfolio_Hub.mq5`:
+| Service | Tier | Monthly Cost |
+|---------|------|--------------|
+| Vercel | Pro (required for cron) | $20/month |
+| Supabase | Free tier | $0/month |
+| Telegram | Free | $0/month |
+| DashScope (Qwen) | Pay-as-you-go | ~$5-15/month |
+| TwelveData (optional) | Starter | $0-34/month |
 
-1. **Backup Current Version:**
-   ```
-   Copy Shadow_Portfolio_Hub.ex5 to Shadow_Portfolio_Hub.ex5.backup
-   ```
-
-2. **Stop EA:**
-   - Remove EA from chart or disable Auto Trading
-
-3. **Deploy New Version:**
-   - Replace `.mq5` source file
-   - Recompile in MetaEditor (F7)
-
-4. **Verify:**
-   - Check compilation output
-   - Confirm version number updated in Experts log
-
-5. **Restart:**
-   - Reattach EA to chart
-   - Monitor first 10 ticks for errors
+**Total Estimated Monthly Cost:** $25-70/month
 
 ---
 
-*Document Version: 1.0*
-*Last Updated: June 2026*
-*System Version: Shadow Portfolio Hub v1.00*
+*Document Version: 2.0 (Serverless Refactor)*  
+*Last Updated: $(date +%Y-%m-%d)*  
+*System Version: Shadow Portfolio Hub v2.0 - Human-in-the-Loop*
